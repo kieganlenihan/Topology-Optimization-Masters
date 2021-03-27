@@ -1,6 +1,6 @@
 from fenics import *
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
+from scipy.optimize import minimize, LinearConstraint, Bounds
 import numpy as np
 
 class HeatSolverSS():
@@ -12,7 +12,6 @@ class HeatSolverSS():
         self.V = FunctionSpace(self.mesh, 'P', 1)
     def boundaryConditions(self):
         u_D = Constant(0.0)
-        tol = 1E-14
         def boundary(x, on_boundary):
             return on_boundary and near(x[1], 0, tol)
         self.bc = DirichletBC(self.V, u_D, boundary)
@@ -26,18 +25,17 @@ class HeatSolverSS():
     def variationalProblem(self):
         u = TrialFunction(self.V)
         self.v = TestFunction(self.V)
-        
         self.a = dot(grad(u), grad(self.v)) * dx
-        # self.f = Expression("10*exp(-(pow(x[0] - 0.5, 2) + pow(x[1] - 0.5, 2)) / 0.02)", degree=2)
-        self.f = Constant(self.source)
+        self.q = Constant(self.source)
         self.a = dot(grad(u), grad(self.v)) * dx
     def solve(self, k):
-        self.L = k * self.f * self.v * self.ds(0)
+        self.L = 1/k *self.q * self.v * self.ds(0)
         self.u = Function(self.V)
         solve(self.a == self.L, self.u, self.bc)
         return self.u.vector().get_local()
-    def plot(self):
-        plot(self.u)
+    def plotSol(self):
+        p = plot(self.u)
+        plt.colorbar(p)
         plt.show()
 def J(kappa):
         return np.linalg.norm(hSolver.solve(kappa[0]) - truth) ** 2
@@ -46,21 +44,26 @@ def callbackFunc(x):
     iter += 1
     inter_sol.append(x[0])
 if __name__ == '__main__':
+    ## Get ground truth
     n_el_x = 16
     source_val = 10
+    k_max = 1E3
+    tol = 1E-14
     hSolver = HeatSolverSS(n_el_x, source_val)
     hSolver.constructMesh()
     hSolver.boundaryConditions()
     hSolver.variationalProblem()
     truth = hSolver.solve(5)
-    
+    # hSolver.plotSol()
+    ## Set search parameters
     kappa = 1
-    x0 = -1.0
+    x0 = [-1.0]
     iter = 0
+    pk = -1.0
     inter_sol = []
     inter_sol.append(kappa)
-    
-    pk = 1.0
-    res = minimize(J, x0, method = 'CG', callback = callbackFunc)
+    ## Optimize
+    bnds = Bounds(0 + tol, k_max)
+    res = minimize(J, x0, method = 'L-BFGS-B', callback = callbackFunc, bounds = bnds, tol = tol)
     print(res.x)
     print(inter_sol)
