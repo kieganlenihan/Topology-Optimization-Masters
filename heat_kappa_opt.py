@@ -1,6 +1,7 @@
 from fenics import *
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize, LinearConstraint, Bounds
+from scipy import linalg
 import numpy as np
 
 class HeatSolverSS():
@@ -31,19 +32,30 @@ class HeatSolverSS():
     def solve(self, k):
         self.L = 1/k *self.q * self.v * self.ds(0)
         self.u = Function(self.V)
-        solve(self.a == self.L, self.u, self.bc)
-        return self.u.vector().get_local()
+        A, b = assemble_system(self.a, self.L, self.bc)
+        U = self.u.vector()
+        solve(A, U, b)
+        return np.expand_dims(U.get_local(), axis = 1), A.array()
     def plotSol(self):
         p = plot(self.u)
         plt.colorbar(p)
         plt.show()
 def J(kappa):
-        return np.linalg.norm(hSolver.solve(kappa[0]) - truth) ** 2
+    T, _ = hSolver.solve(kappa[0])
+    return np.linalg.norm(T - truth) ** 2
+def J_grad(kappa):
+    T, H_k = hSolver.solve(kappa[0])
+    H = H_k * kappa[0]
+    J_T = T - truth
+    w = linalg.solve(H.T, J_T)
+    ans = -T.T @ H_k @ w
+    return ans
 def callbackFunc(x):
     global iter, inter_sol
     iter += 1
     inter_sol.append(x[0])
 if __name__ == '__main__':
+    print('DEBUG:://\n\n\n\n\n\n\n')
     ## Get ground truth
     n_el_x = 16
     source_val = 10
@@ -53,17 +65,14 @@ if __name__ == '__main__':
     hSolver.constructMesh()
     hSolver.boundaryConditions()
     hSolver.variationalProblem()
-    truth = hSolver.solve(5)
+    truth, _ = hSolver.solve(5)
     # hSolver.plotSol()
     ## Set search parameters
-    kappa = 1
-    x0 = [-1.0]
+    x0 = [.0001]
     iter = 0
-    pk = -1.0
     inter_sol = []
-    inter_sol.append(kappa)
     ## Optimize
     bnds = Bounds(0 + tol, k_max)
-    res = minimize(J, x0, method = 'L-BFGS-B', callback = callbackFunc, bounds = bnds, tol = tol)
-    print(res.x)
+    res = minimize(J, x0, jac = J_grad, method = 'L-BFGS-B', callback = callbackFunc, bounds = bnds, tol = tol)
+    print(iter)
     print(inter_sol)
